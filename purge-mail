@@ -1,0 +1,97 @@
+/*
+ Author: Pep Diz
+ Based on script from http://labnol.org/?p=27605
+ License: GPL v2
+
+ About
+ -------------------------
+ 
+ This scripts creates a time trigger to periodically move emails to Trash based in certain criteria
+
+ How to Use the Script
+ -------------------------
+
+ 1- Copy the script as a google script in your drive or type it into google script editor
+ 
+ 2- Set Configuration variables to match your filter criteria
+ 
+    Go to the top of this file to the CONFIGURATION BEGIN section and change configuration variables inside according to your needs. 
+    
+ 3- Execute the Install function (Run -> Install) to install the trigger. Script will ask for authorization and you must grant it.
+    Now you can close the script 'cause it's installed and will be working how often as you selected in configuration step.
+    
+ 4- If you want to uninstall the purge just execute the Uninstall function (Run -> Uninstall).
+     
+ Additionally you can execute the funcion purgeMail whenever you want to launch an inmediate purge.
+ Also you can execute the auxiliary functions showLabels to see what labels you have in your gmail account
+ and showTriggers to see how many triggers you have installed with this script
+  
+*/
+
+//---- CONFIGURATION BEGIN -------------------------
+
+// comma separated labels to be purged
+var GMAIL_LABELS = "";
+
+// Purge messages automatically after how many days?
+var PURGE_AFTER = (365*2).toString();
+
+// minimun size in Mb for a message to be purged (decimals allowed)
+// (only messages greater than PURGE_SIZE will be purged)
+var PURGE_SIZE = 0
+
+// execute the purge every PURGE_EVERY_DAYS days
+var PURGE_EVERY_DAYS = 1
+
+//---- CONFIGURATION END ---------------------------
+
+// --- GLOBALS ---
+var chunk_size = 100;
+var max_chunks = 5;
+
+function Install() {
+  // the strategy is to create a trigger that runs every PURGE_EVERY_DAYS days purging chunk_size emails matching the criteria (labels, size and days)
+  ScriptApp.newTrigger("purgeGmail").timeBased().everyDays(PURGE_EVERY_DAYS).create();
+}
+
+function Uninstall() {
+  ScriptApp.getProjectTriggers().filter(function (t) {return t.getHandlerFunction() == "purgeGmail";}).forEach(function(e) { Logger.log("Deleting trigger " + e.getUniqueId() + ":" + e.getHandlerFunction()); ScriptApp.deleteTrigger(e);}); 
+}
+
+function showTriggers() {
+  ScriptApp.getProjectTriggers().forEach(function (t) {Logger.log(t.getUniqueId() + ':' + t.getHandlerFunction());});
+}  
+
+function showLabels() {
+  GmailApp.getUserLabels().map(function (l) {return l.getName();}).sort().forEach(function (e) {Logger.log(e);});
+}
+
+function purgeGmail() {
+  var age = new Date();  
+  age.setDate(age.getDate() - PURGE_AFTER);    
+  var purge  = Utilities.formatDate(age, Session.getScriptTimeZone(), "yyyy-MM-dd");
+
+  Logger.clear();  
+  var search = GMAIL_LABELS.split(',').map(function (e) {return "label:" + e.trim();}).join('|') + " size:" + PURGE_SIZE.toString() + "m before:" + purge;
+  Logger.log(search);
+  
+  try {
+    
+    // search & delete a chunk of mails a few times
+    
+   var i=0;
+   do {
+        
+     var threads = GmailApp.search(search, 0, chunk_size);
+     
+     if (threads.length > 0) {
+       Logger.log(threads.length);
+       Logger.log(threads[0].getId());
+       GmailApp.moveThreadsToTrash(threads);   // this operation only works for 100 threads max
+     }
+     i += 1;
+   } while (i < max_chunks)
+    
+  } catch (e) {Logger.log(e);}
+ 
+}
