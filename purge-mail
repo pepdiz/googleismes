@@ -25,29 +25,50 @@
  Additionally you can execute the funcion purgeMail whenever you want to launch an inmediate purge.
  Also you can execute the auxiliary functions showLabels to see what labels you have in your gmail account
  and showTriggers to see how many triggers you have installed with this script
+
+
+CHANGELOG:
+
+- Added a json object to save a set of labels with associated filter, say filter objects like:
+
+{ "labels" : "inbox, updates", "min_size_mb" : 1, "age_days" : 365 } 
   
+ and we have an array of filter objects to filter by labels
+ 
+- Added a config object with globals
+
+{ "run_freq_days" : 1 , "max-threads": 7, "filters":  [ filter-object, ... ] }
+
+
+fields:
+
+run_freq_days :  how many days to execute the purge 
+max-threads : max number of threads to process each time the script is executed (touch with caution!)
+filters: set of filters to purge, every filter is an object with the filter criteria to be purged using the following fields:
+         labels: comma separated list of labels
+         min_size_mb: minimun size in megabytes of message
+         age_days: the age of the message in days, only messages older than this age will be selected 
 */
 
 //---- CONFIGURATION BEGIN -------------------------
 
-// comma separated labels to be purged
-var GMAIL_LABELS = "";
+var oConf = { "run_freq_days" : 1 , "max-threads": 7, "filters": [ 
+  { "labels" : "Inbox",
+   "min_size_mb" : 3, "age_days" : 365 } ,
+  { "labels" : "social,promotions,updates",
+   "min_size_mb" : 0, "age_days" : 60 } ]
+}
 
-// Purge messages automatically after how many days?
-var PURGE_AFTER = (365*2).toString();
-
-// minimun size in Mb for a message to be purged (decimals allowed)
-// (only messages greater than PURGE_SIZE will be purged)
-var PURGE_SIZE = 0
-
-// execute the purge every PURGE_EVERY_DAYS days
-var PURGE_EVERY_DAYS = 1
 
 //---- CONFIGURATION END ---------------------------
 
+
 // --- GLOBALS ---
-var chunk_size = 100;
-var max_chunks = 5;
+
+// execute the purge every PURGE_EVERY_DAYS days
+var PURGE_EVERY_DAYS = oConf.run_freq_days;
+var chunk_size = 100;  // hard set (not parametrizable)
+var max_chunks = oConf.max_treads;
 
 function Install() {
   // the strategy is to create a trigger that runs every PURGE_EVERY_DAYS days purging chunk_size emails matching the criteria (labels, size and days)
@@ -67,31 +88,45 @@ function showLabels() {
 }
 
 function purgeGmail() {
+  var fstth=0
+  var f=0;
   var age = new Date();  
-  age.setDate(age.getDate() - PURGE_AFTER);    
-  var purge  = Utilities.formatDate(age, Session.getScriptTimeZone(), "yyyy-MM-dd");
-
-  Logger.clear();  
-  var search = GMAIL_LABELS.split(',').map(function (e) {return "label:" + e.trim();}).join('|') + " size:" + PURGE_SIZE.toString() + "m before:" + purge;
-  Logger.log(search);
+  var purge="";
+  var search="";
   
-  try {
+  for (f=0; f < oConf.filters.length ; f++) { 
     
-    // search & delete a chunk of mails a few times
+    Logger.clear();  
     
-   var i=0;
-   do {
+    age.setDate(age.getDate() - oConf.filters[f].age_days);    
+    purge  = Utilities.formatDate(age, Session.getScriptTimeZone(), "yyyy-MM-dd");  
+    
+    search = oConf.filters[f].labels.split(',').map(function (e) {return "label:" + e.trim();}).join('|') + " size:" + oConf.filters[f].min_size_mb.toString() + "m before:" + purge;
+    Logger.log(search);
+    
+    try {
+      
+      // search & delete a chunk of mails a few times
+      
+      Logger.log("max_chunks: " + max_chunks);
+      Logger.log("chunk_size: " + chunk_size);   
+      
+      
+      var i=0;
+      do {
         
-     var threads = GmailApp.search(search, 0, chunk_size);
-     
-     if (threads.length > 0) {
-       Logger.log(threads.length);
-       Logger.log(threads[0].getId());
-       GmailApp.moveThreadsToTrash(threads);   // this operation only works for 100 threads max
-     }
-     i += 1;
-   } while (i < max_chunks)
+        var threads = GmailApp.search(search, fstth, chunk_size);
+        
+        if (threads.length > 0) {
+          Logger.log("threads: " + threads.length);
+          Logger.log(threads[0].getId());
+          GmailApp.moveThreadsToTrash(threads);   // this operation only works for 100 threads max
+          fstth = fstth + threads.length;
+        }
+        i += 1;
+      } while (i < max_chunks)
     
-  } catch (e) {Logger.log(e);}
- 
+    } catch (e) {Logger.log(e);}
+      
+  }
 }
